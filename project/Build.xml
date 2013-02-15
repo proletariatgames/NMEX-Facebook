@@ -1,0 +1,39 @@
+<xml>
+  <set name="LIB_DIR" value="-Llib"/>
+  <set name="tool" value="static"/>
+  <set name="mobile" value="1"/>
+  <set name="HXCPP_CLANG" value="1"/>
+
+  <!--
+  <set name="ndll-tool" value="static_link"/>
+  -->
+  <set name="ndll-tool" value="static"/>
+  <set name="IOS_ARCH" value="-v7" if="HXCPP_ARMV7" />
+  <set name="name_extra" value=".iphoneos${IOS_ARCH}" if="iphoneos"/>
+  <set name="name_extra" value=".iphonesim" if="iphonesim"/>
+  <include name="${HXCPP}/build-tool/BuildCommon.xml"/>
+  <set name="SLIBEXT" value=".a"/>
+
+  <files id="iphone">
+    <depend name="${HXCPP}/include/hx/Macros.h"/>
+    <depend name="${HXCPP}/include/hx/CFFI.h"/>
+    <compilerflag value="-Iinclude"/>
+    <compilerflag value="-Iiphone/include"/>
+    <file name="iphone/Facebook.mm" />
+  </files>
+
+  <files id="common">                                                                                                   
+    <compilerflag value="-Iinclude"/>                                                                                   
+    <file name="common/ExternalInterface.cpp"/>                                                                         
+  </files>                                                                                                              
+
+  <target id="NDLL" output="libfacebook${name_extra}" tool="linker" toolid="${ndll-tool}">                              
+    <outdir name="../ndll/${BINDDIR}"/>                                                                                 
+    <files id="iphone"/>                                                                                                
+    <files id="common"/>                                                                                                
+  </target>                                                                                                             
+
+  <target id="default">
+    <target id="NDLL"/>
+  </target>
+</xml>
