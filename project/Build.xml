@@ -14,6 +14,10 @@
   <include name="${HXCPP}/build-tool/BuildCommon.xml"/>
   <set name="SLIBEXT" value=".a"/>
 
+  <set name="no_thirdparty_extras" value="1"/>
+  <set name="GCC_THIN_ARCHIVE" value="1" if="iphone"/>
+  <include name="${HXCPP}/build-tool/BuildCommon.xml"/>
+
   <files id="iphone">
     <depend name="${HXCPP}/include/hx/Macros.h"/>
     <depend name="${HXCPP}/include/hx/CFFI.h"/>
@@ -22,16 +26,21 @@
     <file name="iphone/Facebook.mm" />
   </files>
 
-  <files id="common">                                                                                                   
-    <compilerflag value="-Iinclude"/>                                                                                   
-    <file name="common/ExternalInterface.cpp"/>                                                                         
-  </files>                                                                                                              
+  <files id="common">
+    <compilerflag value="-Iinclude"/>
+    <file name="common/ExternalInterface.cpp"/>
+  </files>
 
-  <target id="NDLL" output="libfacebook${name_extra}" tool="linker" toolid="${ndll-tool}">                              
-    <outdir name="../ndll/${BINDDIR}"/>                                                                                 
-    <files id="iphone"/>                                                                                                
-    <files id="common"/>                                                                                                
-  </target>                                                                                                             
+  <!--
+  <lib name="../ndll/iPhone/libfacebook_ios_sdk.a" if="iphone" />
+  -->
+  <lib name="../ndll/iPhone/libfacebook_ios_sdk.a" />
+
+  <target id="NDLL" output="libfacebook${name_extra}" tool="linker" toolid="${ndll-tool}">
+    <outdir name="../ndll/${BINDIR}"/>
+    <files id="iphone"if="iphone" />
+    <files id="common"/>
+  </target>
 
   <target id="default">
     <target id="NDLL"/>

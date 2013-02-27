@@ -160,32 +160,40 @@ namespace facebook
   }
 
   void startSession() {
-    [FBSession openActiveSessionWithReadPermissions:nil allowLoginUI:YES
-      completionHandler:^(FBSession *session, FBSessionState status, NSError *error) {
-        if (!error) {
-          switch (status) {
-            case FBSessionStateOpen:
-              facebook.accessToken = [FBSession activeSession].accessToken;
-              facebook.expirationDate = [FBSession activeSession].expirationDate;
-              dispatchHaxeEvent(START_SESSION_OPEN);
-              break;
-            case FBSessionStateClosed:
-            case FBSessionStateClosedLoginFailed:
-              closeSession();
-              dispatchHaxeEvent(START_SESSION_CLOSED);
-              break;
-            default:
-              break;
+    @try {
+      [FBSession openActiveSessionWithReadPermissions:nil allowLoginUI:YES
+        completionHandler:^(FBSession *session, FBSessionState status, NSError *error) {
+          if (!error) {
+            switch (status) {
+              case FBSessionStateOpen:
+                facebook.accessToken = [FBSession activeSession].accessToken;
+                facebook.expirationDate = [FBSession activeSession].expirationDate;
+                dispatchHaxeEvent(START_SESSION_OPEN);
+                break;
+              case FBSessionStateClosed:
+              case FBSessionStateClosedLoginFailed:
+                closeSession();
+                dispatchHaxeEvent(START_SESSION_CLOSED);
+                break;
+              default:
+                break;
+            }
+          } else {
+            dispatchHaxeEvent(START_SESSION_ERROR);
           }
-        } else {
-          dispatchHaxeEvent(START_SESSION_ERROR);
-        }
-      }];
+        }];
+    } @catch (NSException * e) {
+      NSLog(@"could not log in to facebook %@", e);
+    }
   }
 
   void closeSession() {
-    [[FBSession activeSession] closeAndClearTokenInformation];
-    [FBSession setActiveSession:nil];
+    @try {
+      [[FBSession activeSession] closeAndClearTokenInformation];
+      [FBSession setActiveSession:nil];
+    } @catch (NSException * e) {
+      NSLog(@"could not log out of facebook %@", e);
+    }
   }
 
   void requestWritePermissions() {
@@ -299,8 +307,10 @@ namespace facebook
       NSDictionary *errorData = [userinfo valueForKey:@"com.facebook.sdk:ParsedJSONResponseKey"];
       NSString *type = [[[errorData valueForKey:@"body"] valueForKey:@"error"] valueForKey:@"type"];
       if([type isEqualToString:@"OAuthException"]){
-        closeSession();
-        startSession();
+        //closeSession();
+        //startSession();
+        dispatchHaxeEvent(START_SESSION_CLOSED);
+        // TODO handle logging back in
       }
     }
   }

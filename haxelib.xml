@@ -1,0 +1,6 @@
+<project name="facebook" url="https://github.com/proletariatgames/NMEX-Facebook" license="GPL">
+  <description>Haxe NME Native Extenesion for Facebook</description>
+  <version name="1.0.0">Initial Release</version>
+  <depends name="nme"/>
+	<depends name="hxcpp"/>
+</project>

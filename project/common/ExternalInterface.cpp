@@ -51,12 +51,6 @@ static value facebook_session_active() {
 }
 DEFINE_PRIM(facebook_session_active, 0);
 
-static value facebook_write_enabled() {
-  printf("ExternalInterface::facebook_write_enabled()\n");
-  return alloc_bool(isWriteEnabled());
-}
-DEFINE_PRIM(facebook_write_enabled, 0);
-
 static value facebook_start_session() {
   printf("ExternalInterface::facebook_start_session()\n");
   startSession();

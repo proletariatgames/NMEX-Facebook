@@ -21,7 +21,6 @@ namespace facebook
 {
   void init(const char* i_appId);
   bool sessionActive();
-  bool isWriteEnabled();
   void startSession();
   void closeSession();
   void requestWritePermissions();
