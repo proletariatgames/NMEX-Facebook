@@ -25,7 +25,6 @@ namespace nme {
 
 extern "C" void facebook_send_event(FBEvent &event);
 extern "C" void facebook_send_callback(const char *tId, const char *data, const char *error);
-
 @interface NMEAppDelegate : NSObject <UIApplicationDelegate>
 {
   UIWindow *window;
@@ -44,6 +43,9 @@ extern "C" void facebook_send_callback(const char *tId, const char *data, const 
   - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
   {
     printf("Facebook.mm::openURL\n");
+    NSLog(@"url %@", url);
+    //return YES;
+    //[url retain];
     return [FBSession.activeSession handleOpenURL:url];
   }
 @end
@@ -124,6 +126,10 @@ extern "C" void facebook_send_callback(const char *tId, const char *data, const 
 
   - (void)dialogDidComplete:(FBDialog *)dialog {
     facebook_send_callback(transactionId, "", "");
+    nme::ResumeAnimation();
+  }
+
+  - (void)dialogDidNotComplete:(FBDialog *)dialog {
     nme::ResumeAnimation();
   }
 
