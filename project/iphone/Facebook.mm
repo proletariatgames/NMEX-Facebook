@@ -136,6 +136,7 @@ namespace facebook
 {
   Facebook *facebook;
   static bool haveRequestedPublishPermissions = false;
+  static bool startingSession = false;
   FacebookAppDelegate *nmeAppActivator;
 
   void init(const char *i_appId);
@@ -155,35 +156,42 @@ namespace facebook
     NSString *appId = [[NSString alloc] initWithUTF8String:i_appId];
     [FBSession setDefaultAppID:appId];
     facebook = [[Facebook alloc] initWithAppId:appId andDelegate:nil];
+    [facebook retain];
     nmeAppActivator = [[FacebookAppDelegate alloc]init];
-    [appId release];
+    [nmeAppActivator retain];
   }
 
   void startSession() {
-    @try {
-      [FBSession openActiveSessionWithReadPermissions:nil allowLoginUI:YES
-        completionHandler:^(FBSession *session, FBSessionState status, NSError *error) {
-          if (!error) {
-            switch (status) {
-              case FBSessionStateOpen:
-                facebook.accessToken = [FBSession activeSession].accessToken;
-                facebook.expirationDate = [FBSession activeSession].expirationDate;
-                dispatchHaxeEvent(START_SESSION_OPEN);
-                break;
-              case FBSessionStateClosed:
-              case FBSessionStateClosedLoginFailed:
-                closeSession();
-                dispatchHaxeEvent(START_SESSION_CLOSED);
-                break;
-              default:
-                break;
+    if ( !startingSession ) {
+      startingSession = true;
+      @try {
+        [FBSession openActiveSessionWithReadPermissions:nil allowLoginUI:YES
+          completionHandler:^(FBSession *session, FBSessionState status, NSError *error) {
+            if (!error) {
+              switch (status) {
+                case FBSessionStateOpen:
+                  facebook.accessToken = [FBSession activeSession].accessToken;
+                  facebook.expirationDate = [FBSession activeSession].expirationDate;
+                  dispatchHaxeEvent(START_SESSION_OPEN);
+                  break;
+                case FBSessionStateClosed:
+                case FBSessionStateClosedLoginFailed:
+                  closeSession();
+                  dispatchHaxeEvent(START_SESSION_CLOSED);
+                  break;
+                default:
+                  break;
+              }
+            } else {
+              NSLog(@"openActiveSessionWithReadPermissions error %@", error);
+              dispatchHaxeEvent(START_SESSION_ERROR);
             }
-          } else {
-            dispatchHaxeEvent(START_SESSION_ERROR);
-          }
-        }];
-    } @catch (NSException * e) {
-      NSLog(@"could not log in to facebook %@", e);
+            startingSession = false;
+          }];
+      } @catch (NSException * e) {
+        NSLog(@"could not log in to facebook %@", e);
+        startingSession = false;
+      }
     }
   }
 
@@ -197,6 +205,11 @@ namespace facebook
   }
 
   void requestWritePermissions() {
+    if ( !sessionActive() ) {
+      dispatchHaxeEvent(WRITE_PERMISSIONS_FAILED);
+      return;
+    }
+
     if (!haveRequestedPublishPermissions) {
       NSArray *permissions = [[NSArray alloc] initWithObjects: @"publish_actions", @"publish_stream", nil];
       [[FBSession activeSession] reauthorizeWithPublishPermissions:permissions defaultAudience:FBSessionDefaultAudienceFriends
@@ -213,12 +226,17 @@ namespace facebook
   }
 
   void requestForMe() {
+    if ( !sessionActive() ) {
+      dispatchHaxeEvent(REQUEST_FOR_ME_FAIL);
+      return;
+    }
+
     // FIXME hack to get profile picture
     //[[FBRequest requestForMe] startWithCompletionHandler:
     NSDictionary *params = [[NSDictionary alloc] initWithObjectsAndKeys:@"id,name,first_name,last_name,username,picture",
                  @"fields", nil];
-    [FBRequestConnection startWithGraphPath:@"me" parameters:params HTTPMethod:@"GET" completionHandler:
-      ^(FBRequestConnection *connection, NSDictionary<FBGraphUser> *user, NSError *error) {
+    [FBRequestConnection startWithGraphPath:@"me" parameters:params HTTPMethod:@"GET" 
+      completionHandler:^(FBRequestConnection *connection, NSDictionary<FBGraphUser> *user, NSError *error) {
         if (!error) {
           NSError *e = nil;
           NSData *data = [NSJSONSerialization dataWithJSONObject:user options:nil error: &e];
@@ -226,7 +244,6 @@ namespace facebook
             NSString *jsonStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
             FBEvent evt(REQUEST_FOR_ME_SUCCESS, 0, 0, [jsonStr UTF8String]);
             facebook_send_event(evt);
-            [jsonStr release];
           } else {
             dispatchHaxeEvent(REQUEST_FOR_ME_FAIL);
           }
@@ -239,21 +256,27 @@ namespace facebook
 
   void graphRequest(const char *transactionId, const char *i_graphPath, const char *i_httpMethod,
       const char *i_paramsJSON) {
+    if ( !sessionActive() ) {
+      dispatchHaxeEvent(GRAPH_REQUEST_FAIL);
+      return;
+    }
+
     NSError *e = nil;
     NSData *data = [[[NSString alloc] initWithUTF8String:i_paramsJSON] dataUsingEncoding:NSUTF8StringEncoding];
     NSMutableDictionary *params = [NSJSONSerialization JSONObjectWithData:data
       options:NSJSONReadingMutableContainers error: &e];
-    [data release];
 
-    [FBRequestConnection startWithGraphPath:[[NSString alloc] initWithUTF8String:i_graphPath]
-      parameters:params HTTPMethod:[[NSString alloc] initWithUTF8String:i_httpMethod]
+    NSString* graphPath = [[NSString alloc] initWithUTF8String:i_graphPath];
+    NSString* method = [[NSString alloc] initWithUTF8String:i_httpMethod];
+
+    [FBRequestConnection startWithGraphPath:graphPath parameters:params HTTPMethod:method
       completionHandler:^(FBRequestConnection *connection, id result, NSError *error) {
         NSString *jsonStr = [[NSString alloc] initWithString:@""];
         if (!error) {
           NSError *e = nil;
-          NSData *data = [NSJSONSerialization dataWithJSONObject:result options:nil error: &e];
+          NSData *resultData = [NSJSONSerialization dataWithJSONObject:result options:nil error: &e];
           if (!e) {
-            jsonStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+            jsonStr = [[NSString alloc] initWithData:resultData encoding:NSUTF8StringEncoding];
             FBEvent evt(GRAPH_REQUEST_SUCCESS, 0, 0, [jsonStr UTF8String]);
             facebook_send_event(evt);
           } else {
@@ -266,7 +289,6 @@ namespace facebook
 
         const char *errorStr = (error != nil) ? [[error domain] UTF8String] : "";
         facebook_send_callback(transactionId, [jsonStr UTF8String], errorStr);
-        [jsonStr release];
       }];
   }
 
@@ -316,7 +338,7 @@ namespace facebook
   }
 
   bool sessionActive() {
-    return [[FBSession activeSession] isOpen] && FBSession.activeSession.state == FBSessionStateCreatedTokenLoaded;
+    return [FBSession activeSession] != nil && [[FBSession activeSession] isOpen];
   }
 
   void dispatchHaxeEvent(EventType eventId) {
