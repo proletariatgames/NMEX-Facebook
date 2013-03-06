@@ -23,6 +23,10 @@ namespace nme {
   void ResumeAnimation();
 }
 
+namespace facebook {
+  static bool sessionStarted = false;
+}
+
 extern "C" void facebook_send_event(FBEvent &event);
 extern "C" void facebook_send_callback(const char *tId, const char *data, const char *error);
 @interface NMEAppDelegate : NSObject <UIApplicationDelegate>
@@ -43,7 +47,11 @@ extern "C" void facebook_send_callback(const char *tId, const char *data, const 
   - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
   {
     printf("Facebook.mm::openURL\n");
-    return [FBSession.activeSession handleOpenURL:url];
+    if ( facebook::sessionStarted ) {
+      return [FBSession.activeSession handleOpenURL:url];
+    } else {
+      return NO;
+    }
   }
 @end
 
@@ -175,6 +183,7 @@ namespace facebook
                 case FBSessionStateOpen:
                   facebook.accessToken = [FBSession activeSession].accessToken;
                   facebook.expirationDate = [FBSession activeSession].expirationDate;
+                  sessionStarted = true;
                   dispatchHaxeEvent(START_SESSION_OPEN);
                   break;
                 case FBSessionStateClosed:
