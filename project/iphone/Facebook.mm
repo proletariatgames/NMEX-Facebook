@@ -25,6 +25,7 @@ namespace nme {
 
 namespace facebook {
   static bool sessionStarted = false;
+  static bool facebookInitialized = false;
 }
 
 extern "C" void facebook_send_event(FBEvent &event);
@@ -47,7 +48,7 @@ extern "C" void facebook_send_callback(const char *tId, const char *data, const 
   - (BOOL)application:(UIApplication *)application openURL:(NSURL *)url sourceApplication:(NSString *)sourceApplication annotation:(id)annotation
   {
     printf("Facebook.mm::openURL\n");
-    if ( facebook::sessionStarted ) {
+    if (facebook::facebookInitialized) {
       return [FBSession.activeSession handleOpenURL:url];
     } else {
       return NO;
@@ -170,6 +171,7 @@ namespace facebook
     [facebook retain];
     nmeAppActivator = [[FacebookAppDelegate alloc]init];
     [nmeAppActivator retain];
+    facebookInitialized = true;
   }
 
   void startSession() {
