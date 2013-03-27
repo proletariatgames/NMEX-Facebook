@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <DeprecatedHeaders/Facebook.h>
+#include "FacebookSDK.h"
 #include "Facebook.h"
 #include "FBEvent.h"
 
@@ -49,7 +49,7 @@ extern "C" void facebook_send_callback(const char *tId, const char *data, const 
   {
     printf("Facebook.mm::openURL\n");
     if (facebook::facebookInitialized) {
-      return [FBSession.activeSession handleOpenURL:url];
+      return [[FBSession activeSession] handleOpenURL:url];
     } else {
       return NO;
     }
@@ -57,13 +57,20 @@ extern "C" void facebook_send_callback(const char *tId, const char *data, const 
 @end
 
 @interface FacebookAppDelegate:NSObject
-  - (void)applicationActivated:(id)sender;
-  -(void)applicationWillTerminate:(id)sender;
+{
+  const char *appId;
+}
+-(void)applicationActivated:(id)sender;
+-(void)applicationWillTerminate:(id)sender;
 @end
 
 @implementation FacebookAppDelegate
-  - (id)init {
+  - (id)init:(const char *)aid {
     self = [super init];
+    if (self) {
+      appId = aid;
+    }
+
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applicationActivated:)
       name:UIApplicationDidBecomeActiveNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(applicationWillTerminate:)
@@ -74,6 +81,7 @@ extern "C" void facebook_send_callback(const char *tId, const char *data, const 
   - (void)applicationActivated:(id)sender {
     printf("Facebook.mm::applicationDidBecomeActive\n");
     [[FBSession activeSession] handleDidBecomeActive];
+    [FBSettings publishInstall:[[NSString alloc] initWithUTF8String:appId]];
   }
 
   -(void)applicationWillTerminate:(id)sender {
@@ -87,69 +95,12 @@ extern "C" void facebook_send_callback(const char *tId, const char *data, const 
   }
 @end
 
-@interface InviteDialogDelegate : NSObject <FBDialogDelegate>
-{
-  const char *transactionId;
-}
-@end
-
-@implementation InviteDialogDelegate
-  - (id)init:(const char *)tid {
-    self = [super init];
-    if (self) {
-      transactionId = tid;
-    }
-    return self;
-  }
-
-  - (void) dialogCompleteWithUrl:(NSURL *)url {
-    facebook_send_callback(transactionId, "", "");
-  }
-
-  - (void ) dialogDidComplete:(FBDialog *)dialog {
-    nme::ResumeAnimation();
-  }
-
-  - (void)dealloc {
-    [super dealloc];
-  }
-@end
-
-@interface FeedDialogDelegate : NSObject <FBDialogDelegate>
-{
-  const char *transactionId;
-}
-@end
-
-@implementation FeedDialogDelegate
-  - (id)init:(const char *)tid {
-    self = [super init];
-    if (self) {
-      transactionId = tid;
-    }
-    return self;
-  }
-
-  - (void)dialogDidComplete:(FBDialog *)dialog {
-    facebook_send_callback(transactionId, "", "");
-    nme::ResumeAnimation();
-  }
-
-  - (void)dialogDidNotComplete:(FBDialog *)dialog {
-    nme::ResumeAnimation();
-  }
-
-  - (void)dealloc {
-    [super dealloc];
-  }
-@end
-
 namespace facebook
 {
-  Facebook *facebook;
   static bool haveRequestedPublishPermissions = false;
   static bool startingSession = false;
   FacebookAppDelegate *nmeAppActivator;
+  NSMutableArray *connections;
 
   void init(const char *i_appId);
   void startSession();
@@ -162,13 +113,13 @@ namespace facebook
   void invite(const char *transactionId, const char *i_msg);
   void feedPost(const char *transactionId, const char *i_paramsJSON);
   void dispatchHaxeEvent(EventType eventId);
-  void checkForOAuthError(NSError *error);
+  void checkFacebookError(NSError *error);
 
   void init(const char *i_appId) {
+    connections = [[NSMutableArray alloc] init];
+    [connections retain];
     NSString *appId = [[NSString alloc] initWithUTF8String:i_appId];
     [FBSession setDefaultAppID:appId];
-    facebook = [[Facebook alloc] initWithAppId:appId andDelegate:nil];
-    [facebook retain];
     nmeAppActivator = [[FacebookAppDelegate alloc]init];
     [nmeAppActivator retain];
     facebookInitialized = true;
@@ -183,21 +134,19 @@ namespace facebook
             if (!error) {
               switch (status) {
                 case FBSessionStateOpen:
-                  facebook.accessToken = [FBSession activeSession].accessToken;
-                  facebook.expirationDate = [FBSession activeSession].expirationDate;
                   sessionStarted = true;
                   dispatchHaxeEvent(START_SESSION_OPEN);
                   break;
                 case FBSessionStateClosed:
                 case FBSessionStateClosedLoginFailed:
-                  closeSession();
+                  [session closeAndClearTokenInformation];
                   dispatchHaxeEvent(START_SESSION_CLOSED);
                   break;
                 default:
                   break;
               }
             } else {
-              NSLog(@"openActiveSessionWithReadPermissions error %@", error);
+              checkFacebookError(error);
               dispatchHaxeEvent(START_SESSION_ERROR);
             }
             startingSession = false;
@@ -212,7 +161,6 @@ namespace facebook
   void closeSession() {
     @try {
       [[FBSession activeSession] closeAndClearTokenInformation];
-      [FBSession setActiveSession:nil];
     } @catch (NSException * e) {
       NSLog(@"could not log out of facebook %@", e);
     }
@@ -226,12 +174,13 @@ namespace facebook
 
     if (!haveRequestedPublishPermissions) {
       NSArray *permissions = [[NSArray alloc] initWithObjects: @"publish_actions", @"publish_stream", nil];
-      [[FBSession activeSession] reauthorizeWithPublishPermissions:permissions defaultAudience:FBSessionDefaultAudienceFriends
+
+      [[FBSession activeSession] requestNewPublishPermissions:permissions defaultAudience:FBSessionDefaultAudienceFriends
         completionHandler:^(FBSession *session, NSError* error) {
           if (!error) {
             dispatchHaxeEvent(WRITE_PERMISSIONS_GRANTED);
           } else {
-            checkForOAuthError(error);
+            checkFacebookError(error);
             dispatchHaxeEvent(WRITE_PERMISSIONS_FAILED);
           }
         }];
@@ -245,11 +194,10 @@ namespace facebook
       return;
     }
 
-    // FIXME hack to get profile picture
-    //[[FBRequest requestForMe] startWithCompletionHandler:
     NSDictionary *params = [[NSDictionary alloc] initWithObjectsAndKeys:@"id,name,first_name,last_name,username,picture",
                  @"fields", nil];
-    [FBRequestConnection startWithGraphPath:@"me" parameters:params HTTPMethod:@"GET" 
+    FBRequestConnection *requestConnection = [FBRequestConnection startWithGraphPath:@"me"
+      parameters:params HTTPMethod:@"GET"
       completionHandler:^(FBRequestConnection *connection, NSDictionary<FBGraphUser> *user, NSError *error) {
         if (!error) {
           NSError *e = nil;
@@ -262,10 +210,17 @@ namespace facebook
             dispatchHaxeEvent(REQUEST_FOR_ME_FAIL);
           }
         } else {
-          checkForOAuthError(error);
+          checkFacebookError(error);
           dispatchHaxeEvent(REQUEST_FOR_ME_FAIL);
         }
+
+        // release connection
+        [connections removeObject:connection];
+        [connection release];
       }];
+
+    [requestConnection retain];
+    [connections addObject:requestConnection];
   }
 
   void graphRequest(const char *transactionId, const char *i_graphPath, const char *i_httpMethod,
@@ -280,10 +235,11 @@ namespace facebook
     NSMutableDictionary *params = [NSJSONSerialization JSONObjectWithData:data
       options:NSJSONReadingMutableContainers error: &e];
 
-    NSString* graphPath = [[NSString alloc] initWithUTF8String:i_graphPath];
-    NSString* method = [[NSString alloc] initWithUTF8String:i_httpMethod];
+    NSString *graphPath = [[NSString alloc] initWithUTF8String:i_graphPath];
+    NSString *method = [[NSString alloc] initWithUTF8String:i_httpMethod];
 
-    [FBRequestConnection startWithGraphPath:graphPath parameters:params HTTPMethod:method
+    FBRequestConnection *requestConnection = [FBRequestConnection startWithGraphPath:graphPath
+      parameters:params HTTPMethod:method
       completionHandler:^(FBRequestConnection *connection, id result, NSError *error) {
         NSString *jsonStr = [[NSString alloc] initWithString:@""];
         if (!error) {
@@ -297,28 +253,83 @@ namespace facebook
             dispatchHaxeEvent(GRAPH_REQUEST_FAIL);
           }
         } else {
-          checkForOAuthError(error);
+          checkFacebookError(error);
           dispatchHaxeEvent(GRAPH_REQUEST_FAIL);
         }
-
         const char *errorStr = (error != nil) ? [[error domain] UTF8String] : "";
         facebook_send_callback(transactionId, [jsonStr UTF8String], errorStr);
+
+        // release connection
+        [connections removeObject:connection];
+        [connection release];
       }];
+
+    [requestConnection retain];
+    [connections addObject:requestConnection];
+  }
+
+  NSDictionary *parseURLParams(NSString *query) {
+    NSArray *pairs = [query componentsSeparatedByString:@"&"];
+    NSMutableDictionary *params = [[NSMutableDictionary alloc] init];
+    for (NSString *pair in pairs) {
+      NSArray *kv = [pair componentsSeparatedByString:@"="];
+      NSString *val = [[kv objectAtIndex:1] stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+      [params setObject:val forKey:[kv objectAtIndex:0]];
+    }
+    return params;
   }
 
   void invite(const char *transactionId, const char *i_msg) {
+    // passing FBSession is broken on ios 5
+    FBSession *session = nil;
+    float currentVersion = 6.0;
+    if ([[[UIDevice currentDevice] systemVersion] floatValue] >= currentVersion) {
+      session = [FBSession activeSession];
+    }
+
     nme::PauseAnimation();
-    InviteDialogDelegate *delegate = [[InviteDialogDelegate alloc] init:transactionId];
-    NSMutableDictionary* params = [NSMutableDictionary dictionaryWithObjectsAndKeys:
-      [[NSString alloc] initWithUTF8String:i_msg], @"message", nil];
-    [facebook dialog:@"apprequests" andParams:params andDelegate:delegate];
+    [FBWebDialogs presentRequestsDialogModallyWithSession:session
+      message:[[NSString alloc] initWithUTF8String:i_msg] title:nil parameters:nil
+      handler:^(FBWebDialogResult result, NSURL *resultURL, NSError *error) {
+        if (!error) {
+          if (result != FBWebDialogResultDialogNotCompleted) {
+            NSDictionary *urlParams = parseURLParams([resultURL query]);
+            if ([urlParams valueForKey:@"request"]) {
+              facebook_send_callback(transactionId, "", "");
+            }
+          }
+        }
+        nme::ResumeAnimation();
+      }];
   }
 
   void feedPost(const char *transactionId, const char *i_paramsJSON) {
+    // passing FBSession is broken on ios 5
+    FBSession *session = nil;
+    float currentVersion = 6.0;
+    if ([[[UIDevice currentDevice] systemVersion] floatValue] >= currentVersion) {
+      session = [FBSession activeSession];
+    }
+
     NSError *e = nil;
     NSData *data = [[[NSString alloc] initWithUTF8String:i_paramsJSON] dataUsingEncoding:NSUTF8StringEncoding];
     NSMutableDictionary *params = [NSJSONSerialization JSONObjectWithData:data
       options:NSJSONReadingMutableContainers error: &e];
+
+    nme::PauseAnimation();
+    [FBWebDialogs presentFeedDialogModallyWithSession:session parameters:params
+      handler:^(FBWebDialogResult result, NSURL *resultURL, NSError *error) {
+        if (!error) {
+          if (result != FBWebDialogResultDialogNotCompleted) {
+            NSDictionary *urlParams = parseURLParams([resultURL query]);
+            if ([urlParams valueForKey:@"request"]) {
+              facebook_send_callback(transactionId, "", "");
+            }
+          }
+        }
+        nme::ResumeAnimation();
+      }];
+
 
     /* TODO : add iOS 6 style feed posts
     UIWindow *window = [UIApplication sharedApplication].keyWindow;
@@ -327,27 +338,30 @@ namespace facebook
     bool bDisplayedDialog = [FBNativeDialogs presentShareDialogModallyFrom:rootViewController
       initialText:@"Checkout my Friend Smash greatness!"
       image:nil url:nil handler:^(FBNativeDialogResult result, NSError *error) {}];
-      */
-    bool bDisplayedDialog = false;
-
-    if (!bDisplayedDialog) {
-      nme::PauseAnimation();
-      FeedDialogDelegate *delegate = [[FeedDialogDelegate alloc] init:transactionId];
-      [facebook dialog:@"feed" andParams:params andDelegate:delegate];
-    }
+    */
   }
 
-  void checkForOAuthError(NSError *error) {
-    NSDictionary *userinfo= [error userInfo];
-    if (userinfo) {
-      NSDictionary *errorData = [userinfo valueForKey:@"com.facebook.sdk:ParsedJSONResponseKey"];
-      NSString *type = [[[errorData valueForKey:@"body"] valueForKey:@"error"] valueForKey:@"type"];
-      if([type isEqualToString:@"OAuthException"]){
-        //closeSession();
-        //startSession();
-        dispatchHaxeEvent(START_SESSION_CLOSED);
-        // TODO handle logging back in
-      }
+  void checkFacebookError(NSError *error) {
+    NSString *alertMessage;
+    NSString *alertTitle;
+    if (error.fberrorShouldNotifyUser) {
+      alertTitle = @"Facebook Error";
+      alertMessage = error.fberrorUserMessage;
+    } else if (error.fberrorCategory == FBErrorCategoryUserCancelled) {
+      NSLog(@"User denied permission to your app.");
+    } else if (error.fberrorCategory == FBErrorCategoryAuthenticationReopenSession) {
+      alertTitle = @"Facebook Error";
+      alertMessage = @"Your current Facebook session is no longer valid. Please log in again.";
+      // Tell client session is no longer valid
+      closeSession();
+      dispatchHaxeEvent(START_SESSION_CLOSED);
+    } else {
+      NSLog(@"Unexpected Facebook Error:%@", error);
+    }
+
+    if (alertMessage) {
+      [[[UIAlertView alloc] initWithTitle:alertTitle message:alertMessage delegate:nil cancelButtonTitle:@"OK"
+        otherButtonTitles:nil] show];
     }
   }
 
@@ -361,7 +375,7 @@ namespace facebook
   }
 
   void destroy() {
-    [facebook release];
+    [connections release];
     [nmeAppActivator release];
   }
 
