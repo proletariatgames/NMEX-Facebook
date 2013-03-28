@@ -172,19 +172,23 @@ namespace facebook
       return;
     }
 
-    if (!haveRequestedPublishPermissions) {
-      NSArray *permissions = [[NSArray alloc] initWithObjects: @"publish_actions", @"publish_stream", nil];
+    @try {
+      if (!haveRequestedPublishPermissions) {
+        NSArray *permissions = [[NSArray alloc] initWithObjects: @"publish_actions", @"publish_stream", nil];
 
-      [[FBSession activeSession] requestNewPublishPermissions:permissions defaultAudience:FBSessionDefaultAudienceFriends
-        completionHandler:^(FBSession *session, NSError* error) {
-          if (!error) {
-            dispatchHaxeEvent(WRITE_PERMISSIONS_GRANTED);
-          } else {
-            checkFacebookError(error);
-            dispatchHaxeEvent(WRITE_PERMISSIONS_FAILED);
-          }
-        }];
-      haveRequestedPublishPermissions = true;
+        [[FBSession activeSession] requestNewPublishPermissions:permissions defaultAudience:FBSessionDefaultAudienceFriends
+          completionHandler:^(FBSession *session, NSError* error) {
+            if (!error) {
+              dispatchHaxeEvent(WRITE_PERMISSIONS_GRANTED);
+            } else {
+              checkFacebookError(error);
+              dispatchHaxeEvent(WRITE_PERMISSIONS_FAILED);
+            }
+          }];
+        haveRequestedPublishPermissions = true;
+      }
+    } @catch (NSException * e) {
+      NSLog(@"Facebook requestWritePermissions exception : %@", e);
     }
   }
 
@@ -194,33 +198,37 @@ namespace facebook
       return;
     }
 
-    NSDictionary *params = [[NSDictionary alloc] initWithObjectsAndKeys:@"id,name,first_name,last_name,username,picture",
-                 @"fields", nil];
-    FBRequestConnection *requestConnection = [FBRequestConnection startWithGraphPath:@"me"
-      parameters:params HTTPMethod:@"GET"
-      completionHandler:^(FBRequestConnection *connection, NSDictionary<FBGraphUser> *user, NSError *error) {
-        if (!error) {
-          NSError *e = nil;
-          NSData *data = [NSJSONSerialization dataWithJSONObject:user options:nil error: &e];
-          if (!e) {
-            NSString *jsonStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-            FBEvent evt(REQUEST_FOR_ME_SUCCESS, 0, 0, [jsonStr UTF8String]);
-            facebook_send_event(evt);
+    @try {
+      NSDictionary *params = [[NSDictionary alloc] initWithObjectsAndKeys:@"id,name,first_name,last_name,username,picture",
+                   @"fields", nil];
+      FBRequestConnection *requestConnection = [FBRequestConnection startWithGraphPath:@"me"
+        parameters:params HTTPMethod:@"GET"
+        completionHandler:^(FBRequestConnection *connection, NSDictionary<FBGraphUser> *user, NSError *error) {
+          if (!error) {
+            NSError *e = nil;
+            NSData *data = [NSJSONSerialization dataWithJSONObject:user options:nil error: &e];
+            if (!e) {
+              NSString *jsonStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+              FBEvent evt(REQUEST_FOR_ME_SUCCESS, 0, 0, [jsonStr UTF8String]);
+              facebook_send_event(evt);
+            } else {
+              dispatchHaxeEvent(REQUEST_FOR_ME_FAIL);
+            }
           } else {
+            checkFacebookError(error);
             dispatchHaxeEvent(REQUEST_FOR_ME_FAIL);
           }
-        } else {
-          checkFacebookError(error);
-          dispatchHaxeEvent(REQUEST_FOR_ME_FAIL);
-        }
 
-        // release connection
-        [connections removeObject:connection];
-        [connection release];
-      }];
+          // release connection
+          [connections removeObject:connection];
+          [connection release];
+        }];
 
-    [requestConnection retain];
-    [connections addObject:requestConnection];
+      [requestConnection retain];
+      [connections addObject:requestConnection];
+    } @catch (NSException * e) {
+      NSLog(@"Facebook requestForMe exception : %@", e);
+    }
   }
 
   void graphRequest(const char *transactionId, const char *i_graphPath, const char *i_httpMethod,
@@ -230,42 +238,46 @@ namespace facebook
       return;
     }
 
-    NSError *e = nil;
-    NSData *data = [[[NSString alloc] initWithUTF8String:i_paramsJSON] dataUsingEncoding:NSUTF8StringEncoding];
-    NSMutableDictionary *params = [NSJSONSerialization JSONObjectWithData:data
-      options:NSJSONReadingMutableContainers error: &e];
+    @try {
+      NSError *e = nil;
+      NSData *data = [[[NSString alloc] initWithUTF8String:i_paramsJSON] dataUsingEncoding:NSUTF8StringEncoding];
+      NSMutableDictionary *params = [NSJSONSerialization JSONObjectWithData:data
+        options:NSJSONReadingMutableContainers error: &e];
 
-    NSString *graphPath = [[NSString alloc] initWithUTF8String:i_graphPath];
-    NSString *method = [[NSString alloc] initWithUTF8String:i_httpMethod];
+      NSString *graphPath = [[NSString alloc] initWithUTF8String:i_graphPath];
+      NSString *method = [[NSString alloc] initWithUTF8String:i_httpMethod];
 
-    FBRequestConnection *requestConnection = [FBRequestConnection startWithGraphPath:graphPath
-      parameters:params HTTPMethod:method
-      completionHandler:^(FBRequestConnection *connection, id result, NSError *error) {
-        NSString *jsonStr = [[NSString alloc] initWithString:@""];
-        if (!error) {
-          NSError *e = nil;
-          NSData *resultData = [NSJSONSerialization dataWithJSONObject:result options:nil error: &e];
-          if (!e) {
-            jsonStr = [[NSString alloc] initWithData:resultData encoding:NSUTF8StringEncoding];
-            FBEvent evt(GRAPH_REQUEST_SUCCESS, 0, 0, [jsonStr UTF8String]);
-            facebook_send_event(evt);
+      FBRequestConnection *requestConnection = [FBRequestConnection startWithGraphPath:graphPath
+        parameters:params HTTPMethod:method
+        completionHandler:^(FBRequestConnection *connection, id result, NSError *error) {
+          NSString *jsonStr = [[NSString alloc] initWithString:@""];
+          if (!error) {
+            NSError *e = nil;
+            NSData *resultData = [NSJSONSerialization dataWithJSONObject:result options:nil error: &e];
+            if (!e) {
+              jsonStr = [[NSString alloc] initWithData:resultData encoding:NSUTF8StringEncoding];
+              FBEvent evt(GRAPH_REQUEST_SUCCESS, 0, 0, [jsonStr UTF8String]);
+              facebook_send_event(evt);
+            } else {
+              dispatchHaxeEvent(GRAPH_REQUEST_FAIL);
+            }
           } else {
+            checkFacebookError(error);
             dispatchHaxeEvent(GRAPH_REQUEST_FAIL);
           }
-        } else {
-          checkFacebookError(error);
-          dispatchHaxeEvent(GRAPH_REQUEST_FAIL);
-        }
-        const char *errorStr = (error != nil) ? [[error domain] UTF8String] : "";
-        facebook_send_callback(transactionId, [jsonStr UTF8String], errorStr);
+          const char *errorStr = (error != nil) ? [[error domain] UTF8String] : "";
+          facebook_send_callback(transactionId, [jsonStr UTF8String], errorStr);
 
-        // release connection
-        [connections removeObject:connection];
-        [connection release];
-      }];
+          // release connection
+          [connections removeObject:connection];
+          [connection release];
+        }];
 
-    [requestConnection retain];
-    [connections addObject:requestConnection];
+      [requestConnection retain];
+      [connections addObject:requestConnection];
+    } @catch (NSException * e) {
+      NSLog(@"Facebook graphRequest exception : %@", e);
+    }
   }
 
   NSDictionary *parseURLParams(NSString *query) {
@@ -280,56 +292,51 @@ namespace facebook
   }
 
   void invite(const char *transactionId, const char *i_msg) {
-    // passing FBSession is broken on ios 5
-    FBSession *session = nil;
-    float currentVersion = 6.0;
-    if ([[[UIDevice currentDevice] systemVersion] floatValue] >= currentVersion) {
-      session = [FBSession activeSession];
-    }
-
     nme::PauseAnimation();
-    [FBWebDialogs presentRequestsDialogModallyWithSession:session
-      message:[[NSString alloc] initWithUTF8String:i_msg] title:nil parameters:nil
-      handler:^(FBWebDialogResult result, NSURL *resultURL, NSError *error) {
-        if (!error) {
-          if (result != FBWebDialogResultDialogNotCompleted) {
-            NSDictionary *urlParams = parseURLParams([resultURL query]);
-            if ([urlParams valueForKey:@"request"]) {
-              facebook_send_callback(transactionId, "", "");
+    @try {
+      [FBWebDialogs presentRequestsDialogModallyWithSession:[FBSession activeSession]
+        message:[[NSString alloc] initWithUTF8String:i_msg] title:nil parameters:nil
+        handler:^(FBWebDialogResult result, NSURL *resultURL, NSError *error) {
+          if (!error) {
+            if (result != FBWebDialogResultDialogNotCompleted) {
+              NSDictionary *urlParams = parseURLParams([resultURL query]);
+              if ([urlParams valueForKey:@"request"]) {
+                facebook_send_callback(transactionId, "", "");
+              }
             }
           }
-        }
-        nme::ResumeAnimation();
-      }];
+          nme::ResumeAnimation();
+        }];
+    } @catch (NSException * e) {
+      NSLog(@"Facebook invite exception : %@", e);
+      nme::ResumeAnimation();
+    }
   }
 
   void feedPost(const char *transactionId, const char *i_paramsJSON) {
-    // passing FBSession is broken on ios 5
-    FBSession *session = nil;
-    float currentVersion = 6.0;
-    if ([[[UIDevice currentDevice] systemVersion] floatValue] >= currentVersion) {
-      session = [FBSession activeSession];
-    }
-
-    NSError *e = nil;
-    NSData *data = [[[NSString alloc] initWithUTF8String:i_paramsJSON] dataUsingEncoding:NSUTF8StringEncoding];
-    NSMutableDictionary *params = [NSJSONSerialization JSONObjectWithData:data
-      options:NSJSONReadingMutableContainers error: &e];
-
     nme::PauseAnimation();
-    [FBWebDialogs presentFeedDialogModallyWithSession:session parameters:params
-      handler:^(FBWebDialogResult result, NSURL *resultURL, NSError *error) {
-        if (!error) {
-          if (result != FBWebDialogResultDialogNotCompleted) {
-            NSDictionary *urlParams = parseURLParams([resultURL query]);
-            if ([urlParams valueForKey:@"request"]) {
-              facebook_send_callback(transactionId, "", "");
+    @try {
+      NSError *e = nil;
+      NSData *data = [[[NSString alloc] initWithUTF8String:i_paramsJSON] dataUsingEncoding:NSUTF8StringEncoding];
+      NSMutableDictionary *params = [NSJSONSerialization JSONObjectWithData:data
+        options:NSJSONReadingMutableContainers error: &e];
+
+      [FBWebDialogs presentFeedDialogModallyWithSession:[FBSession activeSession] parameters:params
+        handler:^(FBWebDialogResult result, NSURL *resultURL, NSError *error) {
+          if (!error) {
+            if (result != FBWebDialogResultDialogNotCompleted) {
+              NSDictionary *urlParams = parseURLParams([resultURL query]);
+              if ([urlParams valueForKey:@"request"]) {
+                facebook_send_callback(transactionId, "", "");
+              }
             }
           }
-        }
-        nme::ResumeAnimation();
-      }];
-
+          nme::ResumeAnimation();
+        }];
+    } @catch (NSException * e) {
+      NSLog(@"Facebook feedPost exception : %@", e);
+      nme::ResumeAnimation();
+    }
 
     /* TODO : add iOS 6 style feed posts
     UIWindow *window = [UIApplication sharedApplication].keyWindow;
