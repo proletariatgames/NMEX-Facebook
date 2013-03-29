@@ -203,10 +203,12 @@ namespace facebook
                    @"fields", nil];
       FBRequestConnection *requestConnection = [FBRequestConnection startWithGraphPath:@"me"
         parameters:params HTTPMethod:@"GET"
-        completionHandler:^(FBRequestConnection *connection, NSDictionary<FBGraphUser> *user, NSError *error) {
-          if (!error) {
+        completionHandler:^(FBRequestConnection *connection, id result, NSError *error) {
+          if (!error && result == nil) {
+            dispatchHaxeEvent(REQUEST_FOR_ME_FAIL);
+          } else if (!error) {
             NSError *e = nil;
-            NSData *data = [NSJSONSerialization dataWithJSONObject:user options:nil error: &e];
+            NSData *data = [NSJSONSerialization dataWithJSONObject:result options:nil error: &e];
             if (!e) {
               NSString *jsonStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
               FBEvent evt(REQUEST_FOR_ME_SUCCESS, 0, 0, [jsonStr UTF8String]);
@@ -251,7 +253,7 @@ namespace facebook
         parameters:params HTTPMethod:method
         completionHandler:^(FBRequestConnection *connection, id result, NSError *error) {
           NSString *jsonStr = [[NSString alloc] initWithString:@""];
-          if (!error) {
+          if (!error && result != nil) {
             NSError *e = nil;
             NSData *resultData = [NSJSONSerialization dataWithJSONObject:result options:nil error: &e];
             if (!e) {
